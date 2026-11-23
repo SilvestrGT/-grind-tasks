@@ -1,0 +1,6 @@
+{
+  "name": "Задачи",
+  "description": "Тёмное минималистичное веб-приложение для управления задачами.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
