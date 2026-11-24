@@ -16,6 +16,11 @@ import {
   isValidPriority,
   parseStoredTasks,
 } from '../utils/taskUtils';
+import {
+  clearImportFromUrl,
+  mergeImportedTasks,
+  readImportedTasks,
+} from '../utils/importPlan';
 
 const TASKS_STORAGE_KEY = 'minimal_tasks_v1';
 const FILTER_STORAGE_KEY = 'minimal_tasks_filter_v1';
@@ -86,10 +91,14 @@ function createTaskId(): string {
 function loadInitialTasks(): Task[] {
   try {
     const raw = window.localStorage.getItem(TASKS_STORAGE_KEY);
-    if (raw === null) {
-      return createDefaultTasks();
-    }
-    return parseStoredTasks(raw);
+    const imported = readImportedTasks();
+    const base =
+      raw === null
+        ? imported.length > 0
+          ? []
+          : createDefaultTasks()
+        : parseStoredTasks(raw);
+    return imported.length > 0 ? mergeImportedTasks(base, imported) : base;
   } catch {
     return [];
   }
@@ -126,6 +135,10 @@ export function useTasks() {
     loadInitialCategoryFilter
   );
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    clearImportFromUrl();
+  }, []);
 
   useEffect(() => {
     try {
@@ -307,3 +320,93 @@ export function useTasks() {
     ...stats,
   };
 }
+```[cite: 9]
+
+3. Нажми **Commit changes...** и подтверди сохранение.
+   * *Проверка:* В истории файла на GitHub появился свежий коммит, а старый код заменен на новый.
+
+### Шаг 2. Создай новый файл `importPlan.ts` в папке `src/utils/` (в русском интерфейсе `src/утилиты/`)
+1. Перейди в папку `src/utils/` (или `src/утилиты/`), нажми **Добавить файл** $\rightarrow$ **Создать новый файл**.
+2. В поле имени файла введи `importPlan.ts`[cite: 8], а в поле кода вставь текст ниже:
+
+```ts
+import type { Task } from '../types/task';
+import {
+  hasDuplicateTitle,
+  isValidCategory,
+  isValidDueDate,
+  isValidPriority,
+} from './taskUtils';
+
+const HASH_PREFIX = '#import=';
+const MAX_IMPORTED_TASKS = 200;
+
+export function hasImportInUrl(): boolean {
+  return window.location.hash.startsWith(HASH_PREFIX);
+}
+
+export function clearImportFromUrl(): void {
+  if (!hasImportInUrl()) return;
+  window.history.replaceState(
+    null,
+    '',
+    window.location.pathname + window.location.search
+  );
+}
+
+function decodeBase64Url(value: string): string {
+  const b64 = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * Формат ссылки: #import=<base64url(JSON)>, где JSON это массив
+ * [{ t: "название", c: "Study|Work|Personal|Other", p: "Low|Medium|High", d: "YYYY-MM-DD" }]
+ */
+export function readImportedTasks(): Task[] {
+  try {
+    if (!hasImportInUrl()) return [];
+    const json = decodeBase64Url(window.location.hash.slice(HASH_PREFIX.length));
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+
+    const result: Task[] = [];
+    const now = Date.now();
+    for (const item of parsed.slice(0, MAX_IMPORTED_TASKS)) {
+      if (typeof item !== 'object' || item === null) continue;
+      const raw = item as Record<string, unknown>;
+      const title = typeof raw.t === 'string' ? raw.t.trim().slice(0, 200) : '';
+      if (!title || hasDuplicateTitle(result, title)) continue;
+      result.push({
+        id: `import-${now}-${result.length}`,
+        title,
+        completed: false,
+        createdAt: now - result.length,
+        category: isValidCategory(raw.c) ? raw.c : 'Other',
+        priority: isValidPriority(raw.p) ? raw.p : 'Medium',
+        dueDate: isValidDueDate(raw.d) ? raw.d : null,
+      });
+    }
+    return result;
+  } catch {
+    return [];
+  }
+}
+
+export function mergeImportedTasks(base: Task[], imported: Task[]): Task[] {
+  const fresh = imported.filter((task) => !hasDuplicateTitle(base, task.title));
+  return [...fresh, ...base];
+}
+```[cite: 8]
+
+3. Нажми **Commit changes...** и подтверди сохранение.
+   * *Проверка:* Файл `importPlan.ts` появился внутри папки `utils` / `утилиты`, а Netlify начал пересборку сайта.
+
+<ElicitationsGroup message="Если при вставке кода или после сохранения на GitHub возникнут вопросы:">
+  <Elicitation label="Как открыть файл в блокноте" query="Как открыть скачанный .ts файл на телефоне в текстовом виде, а не через медиаплеер?"/>
+  <Elicitation label="Не вижу папки хуки" query="В моей папке src нет папки хуки или утилиты. Где лежат useTasks.ts и куда класть importPlan.ts?"/>
+  <Elicitation label="Ошибка сборки в Netlify" query="Я сохранил оба файла на GitHub, но Netlify выдал ошибку при сборке. Что делать дальше?"/>
+</ElicitationsGroup>
